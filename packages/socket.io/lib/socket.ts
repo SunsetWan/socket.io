@@ -247,6 +247,8 @@ export class Socket<
 
     // access last argument to see if it's an ACK callback
     if (typeof data[data.length - 1] === "function") {
+      // EN: Keep the callback here; represent it by a namespace-scoped ID beside event data.
+      // ZH: 回调保留在本端；在事件数据之外，用命名空间内分配的 ID 表示回调。
       const id = this.nsp._ids++;
       debug("emitting packet with ack id %d", id);
 
@@ -255,10 +257,14 @@ export class Socket<
     }
 
     const flags = Object.assign({}, this.flags);
+    // EN: Flags apply to this emit only, so a timeout cannot leak into the next emit.
+    // ZH: 标志只用于本次发送，避免超时设置泄漏到下一次发送。
     this.flags = {};
 
     // @ts-ignore
     if (this.nsp.server.opts.connectionStateRecovery) {
+      // EN: Use the socket's own room; the recovery adapter decides what to retain.
+      // ZH: 经由该 Socket 的专属房间发送；是否保留包由恢复适配器决定。
       // this ensures the packet is stored and can be transmitted upon reconnection
       this.adapter.broadcast(packet, {
         rooms: new Set([this.id]),
@@ -315,17 +321,23 @@ export class Socket<
   private registerAckCallback(id: number, ack: (...args: any[]) => void): void {
     const timeout = this.flags.timeout;
     if (timeout === undefined) {
+      // EN: No default deadline is added here; waiting for an ACK does not retry a send.
+      // ZH: 此处不添加默认截止时间；等待 ACK 也不会触发重发。
       this.acks.set(id, ack);
       return;
     }
 
     const timer = setTimeout(() => {
       debug("event with ack id %d has timed out after %d ms", id, timeout);
+      // EN: Remove correlation before reporting timeout; a late ACK has no callback.
+      // ZH: 报告超时前先移除关联，迟到的 ACK 将找不到回调。
       this.acks.delete(id);
       ack.call(this, new Error("operation has timed out"));
     }, timeout);
 
     this.acks.set(id, (...args) => {
+      // EN: Timed ACK callbacks use error-first arguments; success prepends null.
+      // ZH: 带超时的 ACK 回调使用错误优先参数，成功时在首位补入 null。
       clearTimeout(timer);
       ack.apply(this, [null, ...args]);
     });
@@ -438,6 +450,8 @@ export class Socket<
     packet: Omit<Packet, "nsp"> & Partial<Pick<Packet, "nsp">>,
     opts: any = {},
   ): void {
+    // EN: Client shares one Engine.IO connection across namespace sockets.
+    // ZH: Client 在多个命名空间 Socket 之间复用同一条 Engine.IO 连接。
     packet.nsp = this.nsp.name;
     opts.compress = false !== opts.compress;
     this.client._packet(packet as Packet, opts);
@@ -461,6 +475,8 @@ export class Socket<
   public join(rooms: Room | Array<Room>): Promise<void> | void {
     debug("join room %s", rooms);
 
+    // EN: Membership belongs to the namespace adapter; adapters may complete asynchronously.
+    // ZH: 房间成员关系由命名空间适配器管理；其他适配器可能异步完成操作。
     return this.adapter.addAll(
       this.id,
       new Set(Array.isArray(rooms) ? rooms : [rooms]),
@@ -508,6 +524,8 @@ export class Socket<
   _onconnect(): void {
     debug("socket connected - writing packet");
     this.connected = true;
+    // EN: The ID room makes direct targeting use the same adapter path as room broadcasts.
+    // ZH: 以 ID 命名的房间让单点寻址也能复用房间广播的适配器路径。
     this.join(this.id);
     if (this.conn.protocol === 3) {
       this.packet({ type: PacketType.CONNECT });
@@ -556,10 +574,14 @@ export class Socket<
 
     if (null != packet.id) {
       debug("attaching ack callback to event");
+      // EN: The handler receives a reply function, not an automatic receipt confirmation.
+      // ZH: 处理函数拿到的是应答函数，框架不会因收到事件就自动确认。
       args.push(this.ack(packet.id));
     }
 
     if (this._anyListeners && this._anyListeners.length) {
+      // EN: Catch-all listeners run before event middleware; observation is not authorization.
+      // ZH: 全事件监听先于事件中间件执行；观察到事件不代表已通过授权。
       const listeners = this._anyListeners.slice();
       for (const listener of listeners) {
         listener.apply(this, args);
@@ -578,6 +600,8 @@ export class Socket<
     const self = this;
     let sent = false;
     return function () {
+      // EN: This guard permits one ACK per received packet, not one business execution.
+      // ZH: 此保护只限制单个接收包应答一次，不保证业务只执行一次。
       // prevent double callbacks
       if (sent) return;
       const args = Array.prototype.slice.call(arguments);
@@ -599,6 +623,8 @@ export class Socket<
    * @private
    */
   private onack(packet: Packet): void {
+    // EN: ACKs use this socket's map and bypass ordinary event handlers and middleware.
+    // ZH: ACK 查询当前 Socket 的回调表，不经过普通事件处理函数和中间件。
     const ack = this.acks.get(packet.id!);
     if ("function" == typeof ack) {
       debug("calling ack %s with %j", packet.id, packet.data);
@@ -672,6 +698,8 @@ export class Socket<
    * @private
    */
   _cleanup() {
+    // EN: Remove room and namespace membership before disabling future joins.
+    // ZH: 先移除房间和命名空间成员关系，再禁用后续加入房间的操作。
     this.leaveAll();
     this.nsp._remove(this);
     this.join = noop;
@@ -814,6 +842,8 @@ export class Socket<
   private dispatch(event: Event): void {
     debug("dispatching an event %j", event);
     this.run(event, (err) => {
+      // EN: Recheck connection state after middleware; async authorization can outlive it.
+      // ZH: 中间件完成后再次检查连接状态，因为异步授权期间连接可能已关闭。
       process.nextTick(() => {
         if (err) {
           return this._onerror(err);

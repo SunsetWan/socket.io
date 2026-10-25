@@ -342,8 +342,12 @@ export class Namespace<
     debug("adding socket to nsp %s", this.name);
     const socket = await this._createSocket(client, auth);
 
+    // EN: Track pending admission separately; user connection handlers must wait.
+    // ZH: 将等待准入的 Socket 单独登记；用户连接回调需要等待准入完成。
     this._preConnectSockets.set(socket.id, socket);
 
+    // EN: Bypass requires skipMiddlewares, a restored socket, and an open transport.
+    // ZH: 跳过中间件须启用 skipMiddlewares、成功恢复 Socket，且传输连接仍打开。
     if (
       // @ts-ignore
       this.server.opts.connectionStateRecovery?.skipMiddlewares &&
@@ -355,6 +359,8 @@ export class Namespace<
 
     this.run(socket, (err) => {
       process.nextTick(() => {
+        // EN: Middleware can finish after disconnect; do not admit a stale socket.
+        // ZH: 中间件可能在断连后才完成，此时不能再接入已失效的 Socket。
         if ("open" !== client.conn.readyState) {
           debug("next called after client was closed - ignoring socket");
           socket._cleanup();
@@ -362,6 +368,8 @@ export class Namespace<
         }
 
         if (err) {
+          // EN: Reject this namespace and clean its state without closing other namespaces.
+          // ZH: 拒绝当前命名空间并清理其状态，不主动关闭其他命名空间。
           debug("middleware error, sending CONNECT_ERROR packet to the client");
           socket._cleanup();
           if (client.conn.protocol === 3) {
@@ -402,6 +410,8 @@ export class Namespace<
         return new Socket(this, client, auth, session);
       }
     }
+    // EN: Missing or failed recovery creates a fresh socket, not a restored session.
+    // ZH: 恢复信息缺失或恢复失败时创建全新 Socket，不视为恢复成功。
     return new Socket(this, client, auth);
   }
 
@@ -418,6 +428,8 @@ export class Namespace<
     // fires before user-set events to prevent state order
     // violations (such as a disconnection before the connection
     // logic is complete)
+    // EN: Initialize the socket and send CONNECT before user connection handlers.
+    // ZH: 先初始化 Socket 并发送 CONNECT，再执行用户的连接回调。
     socket._onconnect();
     if (fn) fn(socket);
 

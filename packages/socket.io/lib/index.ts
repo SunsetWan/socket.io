@@ -599,6 +599,8 @@ export class Server<
   ): void {
     // initialize engine
     debug("creating engine.io instance with opts %j", opts);
+    // EN: Engine.IO owns HTTP polling and upgrades; Socket.IO uses its data channel.
+    // ZH: Engine.IO 管理 HTTP 轮询与升级，Socket.IO 使用它提供的数据通道。
     this.eio = attach(srv as HTTPServer, opts);
 
     // attach static file serving
@@ -750,7 +752,11 @@ export class Server<
   private onconnection(conn: RawSocket): this {
     // @ts-expect-error use of private
     debug("incoming connection with id %s", conn.id);
+    // EN: One Client routes this Engine.IO connection to multiple namespace sockets.
+    // ZH: 一个 Client 将此 Engine.IO 连接上的包路由到多个命名空间 Socket。
     const client = new Client(this, conn);
+    // EN: Only the legacy EIO3 path joins "/" here; EIO4 waits for a CONNECT packet.
+    // ZH: 仅旧 EIO3 路径在此加入根命名空间；EIO4 等待 CONNECT 包。
     if (conn.protocol === 3) {
       // @ts-expect-error use of private
       client.connect("/");

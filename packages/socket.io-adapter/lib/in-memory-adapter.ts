@@ -44,6 +44,8 @@ interface SessionToPersist {
 export type Session = SessionToPersist & { missedPackets: unknown[][] };
 
 export class Adapter extends EventEmitter {
+  // EN: These indexes belong to one namespace in this process, not to a shared room store.
+  // ZH: 这些索引属于当前进程的一个命名空间，并不是跨进程共享的房间存储。
   public rooms: Map<Room, Set<SocketId>> = new Map();
   public sids: Map<SocketId, Set<Room>> = new Map();
   private readonly encoder;
@@ -74,6 +76,8 @@ export class Adapter extends EventEmitter {
    * @public
    */
   public serverCount(): Promise<number> {
+    // EN: The default adapter has one local server; cluster adapters override this contract.
+    // ZH: 默认适配器仅有一个本地服务端；集群适配器需要重写此接口。
     return Promise.resolve(1);
   }
 
@@ -85,6 +89,8 @@ export class Adapter extends EventEmitter {
    * @public
    */
   public addAll(id: SocketId, rooms: Set<Room>): Promise<void> | void {
+    // EN: Maintain both directions for room fan-out and socket cleanup without a full scan.
+    // ZH: 同时维护双向索引，使房间广播与连接清理无需扫描全部成员关系。
     if (!this.sids.has(id)) {
       this.sids.set(id, new Set());
     }
@@ -168,6 +174,8 @@ export class Adapter extends EventEmitter {
     };
 
     packet.nsp = this.nsp.name;
+    // EN: Encode once for all targets; writeToEngine bypasses another Socket.IO encoding pass.
+    // ZH: 为所有目标只编码一次；writeToEngine 直接转交片段，绕过再次 Socket.IO 编码。
     const encodedPackets = this._encode(packet, packetOpts);
 
     this.apply(opts, (socket) => {
@@ -217,6 +225,8 @@ export class Adapter extends EventEmitter {
 
     this.apply(opts, (socket) => {
       // track the total number of acknowledgements that are expected
+      // EN: Count selected sockets, not confirmed deliveries; each socket owns its ACK entry.
+      // ZH: 统计的是选中的连接而非已确认送达数；每个连接持有自己的 ACK 登记项。
       clientCount++;
       // call the ack callback for each client response
       socket.acks.set(packet.id, ack);
@@ -239,6 +249,8 @@ export class Adapter extends EventEmitter {
       encodedPackets.length === 1 &&
       typeof encodedPackets[0] === "string"
     ) {
+      // EN: Reuse a WebSocket frame only for this single-text-packet path; other cases stay encoded packets.
+      // ZH: 仅为单个文本包预生成可复用的 WebSocket 帧，其他情况仍使用编码后的数据包。
       // "4" being the "message" packet type in the Engine.IO protocol
       const data = Buffer.from("4" + encodedPackets[0]);
       // see https://github.com/websockets/ws/issues/617#issuecomment-283002469
@@ -332,9 +344,13 @@ export class Adapter extends EventEmitter {
 
   private apply(opts: BroadcastOptions, callback: (socket) => void): void {
     const rooms = opts.rooms;
+    // EN: Resolve excluded rooms to socket IDs before applying the inclusion filter.
+    // ZH: 先把排除房间转换为连接 ID，再应用目标房间筛选。
     const except = this.computeExceptSids(opts.except);
 
     if (rooms.size) {
+      // EN: Multiple rooms form a union; ids prevents duplicate sends to overlapping members.
+      // ZH: 多个目标房间取并集；ids 避免向同时加入多个房间的成员重复发送。
       const ids = new Set();
       for (const room of rooms) {
         if (!this.rooms.has(room)) continue;
@@ -349,6 +365,8 @@ export class Adapter extends EventEmitter {
         }
       }
     } else {
+      // EN: An empty target-room set means every indexed socket, still subject to exclusions.
+      // ZH: 未指定目标房间时遍历全部已登记连接，但仍应用排除条件。
       for (const [id] of this.sids) {
         if (except.has(id)) continue;
         const socket = this.nsp.sockets.get(id);
@@ -409,6 +427,8 @@ type SessionWithTimestamp = SessionToPersist & { disconnectedAt: number };
 export class SessionAwareAdapter extends Adapter {
   private readonly maxDisconnectionDuration: number;
 
+  // EN: Optional recovery uses process memory and an expiry window, not durable message storage.
+  // ZH: 可选恢复功能使用进程内存和有效期窗口，不提供持久化消息存储。
   private sessions: Map<PrivateSessionId, SessionWithTimestamp> = new Map();
   private packets: PersistedPacket[] = [];
 
@@ -460,6 +480,8 @@ export class SessionAwareAdapter extends Adapter {
     }
     const index = this.packets.findIndex((packet) => packet.id === offset);
     if (index === -1) {
+      // EN: A saved session alone is insufficient; replay needs a retained packet offset too.
+      // ZH: 仅保存会话还不够；重放还需要找到仍被保留的数据包偏移量。
       // the offset may be too old
       return null;
     }
@@ -482,6 +504,8 @@ export class SessionAwareAdapter extends Adapter {
     // restored on another server upon reconnection
     const withoutAcknowledgement = packet.id === undefined;
     const notVolatile = opts.flags?.volatile === undefined;
+    // EN: Retain only events without an ACK ID and without a volatile flag, then send normally.
+    // ZH: 仅保留没有 ACK ID 且未设置 volatile 标志的事件，随后仍执行正常广播。
     if (isEventPacket && withoutAcknowledgement && notVolatile) {
       const id = yeast();
       // the offset is stored at the end of the data array, so the client knows the ID of the last packet it has

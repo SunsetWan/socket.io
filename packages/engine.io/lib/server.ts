@@ -348,6 +348,8 @@ export abstract class BaseServer extends EventEmitter {
         });
       }
 
+      // EN: This gate accepts a new Engine.IO session, before namespace auth runs.
+      // ZH: 此处控制新 Engine.IO 会话的准入，命名空间认证尚未执行。
       if (!this.opts.allowRequest) return fn();
 
       return this.opts.allowRequest(req, (message, success) => {
@@ -511,6 +513,8 @@ export abstract class BaseServer extends EventEmitter {
       closeConnection(Server.errors.BAD_REQUEST);
       return;
     }
+    // EN: This socket owns transport state and heartbeat, not namespace events.
+    // ZH: 这个 Socket 管理传输状态和心跳，不负责命名空间事件。
     const socket = new Socket(id, this, transport, req, protocol);
 
     transport.on("headers", (headers, req) => {
@@ -538,6 +542,8 @@ export abstract class BaseServer extends EventEmitter {
       this.clientsCount--;
     });
 
+    // EN: Socket.IO creates its Client here; EIO4 still needs namespace CONNECT.
+    // ZH: Socket.IO 在此创建 Client；EIO4 仍需后续命名空间 CONNECT 握手。
     this.emit("connection", socket);
 
     return transport;
@@ -816,6 +822,8 @@ export class Server extends BaseServer {
         return;
       }
 
+      // EN: Polling requests with a sid reuse the session instead of reconnecting.
+      // ZH: 带 sid 的轮询请求复用现有会话，不会重新建立连接。
       if (engineRequest._query.sid) {
         debug("setting new request for existing client");
         this.clients[engineRequest._query.sid].transport.onRequest(
@@ -944,6 +952,8 @@ export class Server extends BaseServer {
         );
         // @ts-expect-error this option is only for WebSocket impl
         transport.perMessageDeflate = this.opts.perMessageDeflate;
+        // EN: Probe and replace the transport while retaining the Engine.IO session.
+        // ZH: 探测并替换传输层，同时保留同一个 Engine.IO 会话。
         client._maybeUpgrade(transport);
       }
     } else {

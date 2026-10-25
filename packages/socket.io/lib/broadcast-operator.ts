@@ -46,6 +46,8 @@ export class BroadcastOperator<EmitEvents extends EventsMap, SocketData>
    * @return a new {@link BroadcastOperator} instance for chaining
    */
   public to(room: Room | Room[]) {
+    // EN: Copy the room set so this chain does not change an operator reused elsewhere.
+    // ZH: 复制房间集合，避免当前调用链改变其他位置复用的广播操作对象。
     const rooms = new Set(this.rooms);
     if (Array.isArray(room)) {
       room.forEach((r) => rooms.add(r));
@@ -91,6 +93,8 @@ export class BroadcastOperator<EmitEvents extends EventsMap, SocketData>
    * @return a new {@link BroadcastOperator} instance for chaining
    */
   public except(room: Room | Room[]) {
+    // EN: Keep exclusions separate; the adapter subtracts their members from the targets.
+    // ZH: 单独保存排除房间，由适配器从目标集合中扣除这些房间的成员。
     const exceptRooms = new Set(this.exceptRooms);
     if (Array.isArray(room)) {
       room.forEach((r) => exceptRooms.add(r));
@@ -223,6 +227,8 @@ export class BroadcastOperator<EmitEvents extends EventsMap, SocketData>
     const withAck = typeof data[data.length - 1] === "function";
 
     if (!withAck) {
+      // EN: Delegate recipient selection and delivery to the adapter; true is not a receipt.
+      // ZH: 将接收者筛选和发送交给适配器；返回 true 不代表客户端已收到事件。
       this.adapter.broadcast(packet, {
         rooms: this.rooms,
         except: this.exceptRooms,
@@ -232,6 +238,8 @@ export class BroadcastOperator<EmitEvents extends EventsMap, SocketData>
       return true;
     }
 
+    // EN: Keep the callback on the server; the adapter adds an ACK ID to the event packet.
+    // ZH: 回调保留在服务端；适配器为事件包添加 ACK ID。
     const ack = data.pop() as (...args: any[]) => void;
     let timedOut = false;
     let responses: any[] = [];
@@ -244,6 +252,8 @@ export class BroadcastOperator<EmitEvents extends EventsMap, SocketData>
       const packetId = packet.id;
 
       if (packetId !== undefined) {
+        // EN: Remove local ACK handlers after timeout; this cannot undo an event already sent.
+        // ZH: 超时后移除本地 ACK 处理器；这不能撤回已经发出的事件。
         this.adapter.nsp.sockets.forEach((socket) => {
           socket.acks.delete(packetId);
         });
@@ -255,6 +265,8 @@ export class BroadcastOperator<EmitEvents extends EventsMap, SocketData>
       ]);
     }, this.flags.timeout);
 
+    // EN: Wait for every server's target count and every target's ACK before completing.
+    // ZH: 只有收到所有服务端的目标数量与所有目标的 ACK，才判定广播确认完成。
     let expectedServerCount = -1;
     let actualServerCount = 0;
     let expectedClientCount = 0;

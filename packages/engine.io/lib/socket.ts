@@ -128,6 +128,8 @@ export class Socket extends EventEmitter {
   private onOpen() {
     this.readyState = "open";
 
+    // EN: OPEN advertises Engine.IO state; it does not accept a Socket.IO namespace.
+    // ZH: OPEN 公布 Engine.IO 状态，不代表已接入 Socket.IO 命名空间。
     // sends an `open` packet
     this.transport.sid = this.id;
     this.sendPacket(
@@ -210,6 +212,8 @@ export class Socket extends EventEmitter {
         break;
 
       case "message":
+        // EN: Forward only the payload; Socket.IO decodes its own packet layer next.
+        // ZH: 此处只转交载荷，随后由 Socket.IO 解码上层协议包。
         this.emit("data", packet.data);
         this.emit("message", packet.data);
         break;
@@ -533,6 +537,8 @@ export class Socket extends EventEmitter {
    * @private
    */
   private flush() {
+    // EN: A non-writable transport keeps queued packets; flush is not a peer ACK.
+    // ZH: 传输层不可写时保留排队的包；flush 不代表对端已确认收到。
     if (
       "closed" !== this.readyState &&
       this.transport.writable &&

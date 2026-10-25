@@ -108,6 +108,8 @@ export class Client<
     this.conn.on("error", this.onerror);
     this.conn.on("close", this.onclose);
 
+    // EN: An open transport alone must not keep a client with no joined namespace.
+    // ZH: 仅打开传输连接不足以长期保留尚未加入任何命名空间的客户端。
     this.connectTimeout = setTimeout(() => {
       if (this.nsps.size === 0) {
         debug("no namespace joined yet, close the client");
@@ -167,6 +169,8 @@ export class Client<
     const nsp = this.server.of(name);
 
     nsp._add(this, auth, (socket) => {
+      // EN: Publish routing entries after admission, before user connection handlers.
+      // ZH: 准入成功后登记路由，并先于用户的连接回调完成。
       this.sockets.set(socket.id, socket);
       this.nsps.set(nsp.name, socket);
 
@@ -232,6 +236,8 @@ export class Client<
       debug("ignoring packet write %j", packet);
       return;
     }
+    // EN: The parser can split binary events into a header and separate attachments.
+    // ZH: 编码器可将二进制事件拆成协议头和独立附件。
     const encodedPackets = opts.preEncoded
       ? (packet as Packet[]) // previous versions of the adapter incorrectly used socket.packet() instead of writeToEngine()
       : this.encoder.encode(packet as Packet);
@@ -252,6 +258,8 @@ export class Client<
       ? encodedPackets
       : [encodedPackets];
     for (const encodedPacket of packets) {
+      // EN: Engine.IO wraps each encoded piece in a message packet for transport.
+      // ZH: Engine.IO 将每个已编码片段封装为 message 包后传输。
       this.conn.write(encodedPacket, opts);
     }
   }
@@ -264,6 +272,8 @@ export class Client<
   private ondata(data: unknown): void {
     // try/catch is needed for protocol violations (GH-1880)
     try {
+      // EN: Binary attachments may need several data events before decoded fires.
+      // ZH: 二进制附件可能需要多个 data 事件，收齐后才触发 decoded。
       this.decoder.add(data);
     } catch (e) {
       debug("invalid packet format");
@@ -280,6 +290,8 @@ export class Client<
     const { namespace, authPayload } = this._parseNamespace(packet);
     const socket = this.nsps.get(namespace);
 
+    // EN: CONNECT opens a namespace; later packets must target an admitted socket.
+    // ZH: CONNECT 用于接入命名空间；后续包必须指向已获准接入的 Socket。
     if (!socket && packet.type === PacketType.CONNECT) {
       this.connect(namespace, authPayload);
     } else if (
@@ -291,6 +303,8 @@ export class Client<
         socket._onpacket(packet);
       });
     } else {
+      // EN: Invalid packet order closes the shared connection and all its namespaces.
+      // ZH: 非法包顺序会关闭共享连接，影响该连接上的所有命名空间。
       debug("invalid state (packet type: %s)", packet.type);
       this.close();
     }
@@ -339,6 +353,8 @@ export class Client<
     // ignore a potential subsequent `close` event
     this.destroy();
 
+    // EN: A transport close fans out to every namespace socket on this Client.
+    // ZH: 传输连接关闭时，此 Client 上的每个命名空间 Socket 都会收到关闭通知。
     // `nsps` and `sockets` are cleaned up seamlessly
     for (const socket of this.sockets.values()) {
       socket._onclose(reason, description);
